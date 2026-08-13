@@ -1,0 +1,107 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from seedbox_doctor.client import TransportError
+from seedbox_doctor.config import InstanceConfig
+from seedbox_doctor.models import Status
+from seedbox_doctor.runner import run_audit
+
+
+class FakeClient:
+    fail_preferences = False
+    fail_login = False
+
+    def __init__(self, base_url, username, password, *, timeout):
+        self.logged_out = False
+
+    def login(self):
+        if self.fail_login:
+            raise TransportError("offline")
+
+    def logout(self):
+        self.logged_out = True
+
+    def app_version(self):
+        return "5.0.4"
+
+    def preferences(self):
+        if self.fail_preferences:
+            raise TransportError("endpoint unavailable")
+        return {
+            "web_ui_csrf_protection_enabled": True,
+            "web_ui_host_header_validation_enabled": True,
+            "web_ui_clickjacking_protection_enabled": True,
+            "bypass_local_auth": False,
+            "bypass_auth_subnet_whitelist_enabled": False,
+            "web_ui_upnp": False,
+            "use_https": True,
+            "web_ui_address": "127.0.0.1",
+        }
+
+    def torrents(self):
+        return [{"hash": "abc", "state": "uploading"}]
+
+    def transfer_info(self):
+        return {
+            "connection_status": "connected",
+            "dht_nodes": 100,
+            "up_info_data": 10,
+            "dl_info_data": 20,
+        }
+
+    def trackers(self, torrent_hash):
+        return [{"url": "https://tracker.example/announce", "status": 2}]
+
+
+class RunnerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.config = InstanceConfig(
+            name="main",
+            url="https://qb.example.test",
+            username="admin",
+            password="secret",
+            local=False,
+            download_roots=(Path(directory.name),),
+        )
+
+    def by_id(self, report):
+        return {finding.check_id: finding for finding in report.findings}
+
+    def test_runs_remote_checks_and_skips_host_storage(self) -> None:
+        report = run_audit(self.config, client_factory=FakeClient)
+        findings = self.by_id(report)
+
+        self.assertEqual(findings["api.connection"].status, Status.PASS)
+        self.assertEqual(findings["security.csrf"].status, Status.PASS)
+        self.assertEqual(findings["torrents.errors"].status, Status.PASS)
+        self.assertEqual(findings["trackers.failures"].status, Status.PASS)
+        self.assertEqual(findings["transfer.connection"].status, Status.PASS)
+        self.assertEqual(findings["storage.capacity"].status, Status.SKIP)
+
+    def test_endpoint_failure_does_not_abort_other_checks(self) -> None:
+        class PartialClient(FakeClient):
+            fail_preferences = True
+
+        report = run_audit(self.config, client_factory=PartialClient)
+        findings = self.by_id(report)
+
+        self.assertEqual(findings["api.preferences"].status, Status.FAIL)
+        self.assertEqual(findings["torrents.errors"].status, Status.PASS)
+        self.assertEqual(findings["transfer.connection"].status, Status.PASS)
+
+    def test_login_failure_returns_report_instead_of_raising(self) -> None:
+        class OfflineClient(FakeClient):
+            fail_login = True
+
+        report = run_audit(self.config, client_factory=OfflineClient)
+        findings = self.by_id(report)
+        self.assertEqual(findings["api.connection"].status, Status.FAIL)
+        self.assertEqual(findings["storage.capacity"].status, Status.SKIP)
+        self.assertEqual(len(findings), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
