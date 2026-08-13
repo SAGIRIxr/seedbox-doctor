@@ -17,7 +17,11 @@ def _integer(info: Mapping[str, Any], key: str) -> int | None:
         return None
 
 
-def audit_transfer_health(info: Mapping[str, Any]) -> tuple[Finding, ...]:
+def audit_transfer_health(
+    info: Mapping[str, Any],
+    *,
+    dht_enabled: bool | None = None,
+) -> tuple[Finding, ...]:
     """Evaluate connection state and aggregate session counters."""
 
     findings: list[Finding] = []
@@ -54,16 +58,29 @@ def audit_transfer_health(info: Mapping[str, Any]) -> tuple[Finding, ...]:
         )
 
     dht_nodes = _integer(info, "dht_nodes")
-    if dht_nodes is None:
+    if dht_enabled is False:
+        findings.append(
+            Finding(
+                "transfer.dht",
+                Status.SKIP,
+                "DHT is disabled in qBittorrent preferences",
+            )
+        )
+    elif dht_nodes is None:
         findings.append(
             Finding("transfer.dht", Status.SKIP, "DHT node count is not reported")
         )
     elif dht_nodes == 0:
+        summary = (
+            "DHT is enabled but has no known nodes"
+            if dht_enabled is True
+            else "DHT reports no known nodes"
+        )
         findings.append(
             Finding(
                 "transfer.dht",
                 Status.WARN,
-                "DHT is enabled but has no known nodes",
+                summary,
                 remediation="Wait for bootstrap or check UDP reachability; private trackers may disable DHT.",
                 metadata={"nodes": 0},
             )

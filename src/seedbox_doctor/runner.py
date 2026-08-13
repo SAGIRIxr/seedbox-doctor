@@ -59,12 +59,15 @@ def _run_authenticated_audit(
             )
         )
 
+    dht_enabled: bool | None = None
     try:
         preferences = client.preferences()
     except QbittorrentError as error:
         findings.append(_api_failure("api.preferences", "preferences", error))
     else:
         findings.extend(audit_webui_security(preferences, config.url))
+        if isinstance(preferences.get("dht"), bool):
+            dht_enabled = preferences["dht"]
 
     torrents: list[dict[str, Any]] = []
     try:
@@ -79,7 +82,7 @@ def _run_authenticated_audit(
     except QbittorrentError as error:
         findings.append(_api_failure("api.transfer", "transfer state", error))
     else:
-        findings.extend(audit_transfer_health(transfer))
+        findings.extend(audit_transfer_health(transfer, dht_enabled=dht_enabled))
 
     tracker_groups: list[list[dict[str, Any]]] = []
     tracker_errors: list[QbittorrentError] = []
