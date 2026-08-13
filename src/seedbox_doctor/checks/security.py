@@ -25,7 +25,15 @@ def _boolean_control(
             Status.SKIP,
             f"{label} is not reported by this qBittorrent version",
         )
-    value = bool(preferences[key])
+    value = preferences[key]
+    if not isinstance(value, bool):
+        return Finding(
+            check_id,
+            unsafe_status,
+            f"{label} could not be verified",
+            evidence=(f"type={type(value).__name__}",),
+            remediation=f"{remediation} Confirm the Web API returns a boolean value.",
+        )
     if value is safe_value:
         return Finding(check_id, Status.PASS, f"{label} is configured safely")
     return Finding(
