@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Hashable
 from pathlib import Path
 from typing import Callable, Iterable, NamedTuple
 
@@ -19,6 +20,12 @@ def _gib(value: int) -> float:
     return value / (1024**3)
 
 
+def _filesystem_identity(path: Path) -> Hashable:
+    """Return the operating system's stable device identity for a path."""
+
+    return path.stat().st_dev
+
+
 def audit_storage(
     roots: Iterable[Path],
     *,
@@ -27,6 +34,7 @@ def audit_storage(
     fail_percent: float = 5.0,
     warn_free_gib: float = 25.0,
     usage_reader: Callable[[Path], DiskUsage] = shutil.disk_usage,
+    identity_reader: Callable[[Path], Hashable] = _filesystem_identity,
 ) -> tuple[Finding, ...]:
     """Inspect configured local download filesystems without writing to them."""
 
@@ -54,7 +62,7 @@ def audit_storage(
         )
 
     findings: list[Finding] = []
-    seen_filesystems: set[tuple[int, int]] = set()
+    seen_filesystems: set[Hashable] = set()
     for index, path in enumerate(paths, start=1):
         check_id = f"storage.root_{index}"
         if not path.exists():
@@ -79,7 +87,7 @@ def audit_storage(
             continue
 
         usage = usage_reader(path)
-        identity = (usage.total, usage.free)
+        identity = identity_reader(path)
         if identity in seen_filesystems:
             findings.append(
                 Finding(
