@@ -39,6 +39,7 @@ class FakeClient:
             "bypass_local_auth": False,
             "bypass_auth_subnet_whitelist_enabled": False,
             "web_ui_upnp": False,
+            "dht": True,
             "use_https": True,
             "web_ui_address": "127.0.0.1",
         }
@@ -100,6 +101,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(findings["api.preferences"].status, Status.FAIL)
         self.assertEqual(findings["torrents.errors"].status, Status.PASS)
         self.assertEqual(findings["transfer.connection"].status, Status.PASS)
+
+    def test_disabled_dht_preference_skips_node_warning(self) -> None:
+        class DhtDisabledClient(FakeClient):
+            def preferences(self):
+                return {**super().preferences(), "dht": False}
+
+            def transfer_info(self):
+                return {**super().transfer_info(), "dht_nodes": 0}
+
+        report = run_audit(self.config, client_factory=DhtDisabledClient)
+
+        self.assertEqual(self.by_id(report)["transfer.dht"].status, Status.SKIP)
 
     def test_login_failure_returns_report_instead_of_raising(self) -> None:
         class OfflineClient(FakeClient):
