@@ -28,43 +28,16 @@ def _api_failure(check_id: str, label: str, error: Exception) -> Finding:
     )
 
 
-def run_audit(
+def _run_authenticated_audit(
     config: InstanceConfig,
+    client: QbittorrentClient,
+    findings: list[Finding],
     *,
-    client_factory: ClientFactory = QbittorrentClient,
     now: float | None = None,
 ) -> AuditReport:
-    """Run all available checks, isolating optional endpoint failures."""
+    """Run checks that require an already authenticated client."""
 
-    findings: list[Finding] = []
-    client = client_factory(
-        config.url,
-        config.username,
-        config.password,
-        timeout=config.timeout,
-    )
-    try:
-        client.login()
-        version = client.app_version()
-    except QbittorrentError as error:
-        findings.append(
-            Finding(
-                "api.connection",
-                Status.FAIL,
-                "Unable to establish an authenticated qBittorrent session",
-                evidence=(type(error).__name__,),
-                remediation="Verify the URL, credentials, Web UI state, and network path.",
-            )
-        )
-        findings.extend(
-            audit_storage(
-                config.download_roots,
-                is_local=config.local,
-            )
-        )
-        findings.extend(audit_media_tools(is_local=config.local))
-        return AuditReport.from_findings(config.name, findings)
-
+    version = client.app_version()
     findings.append(
         Finding(
             "api.connection",
@@ -163,6 +136,70 @@ def run_audit(
         )
     )
     findings.extend(audit_media_tools(is_local=config.local))
-    client.logout()
     return AuditReport.from_findings(config.name, findings)
+
+
+def run_audit(
+    config: InstanceConfig,
+    *,
+    client_factory: ClientFactory = QbittorrentClient,
+    now: float | None = None,
+) -> AuditReport:
+    """Run all available checks, isolating optional endpoint failures."""
+
+    findings: list[Finding] = []
+    client = client_factory(
+        config.url,
+        config.username,
+        config.password,
+        timeout=config.timeout,
+    )
+    try:
+        client.login()
+    except QbittorrentError as error:
+        findings.append(
+            Finding(
+                "api.connection",
+                Status.FAIL,
+                "Unable to establish an authenticated qBittorrent session",
+                evidence=(type(error).__name__,),
+                remediation="Verify the URL, credentials, Web UI state, and network path.",
+            )
+        )
+        findings.extend(
+            audit_storage(
+                config.download_roots,
+                is_local=config.local,
+            )
+        )
+        findings.extend(audit_media_tools(is_local=config.local))
+        return AuditReport.from_findings(config.name, findings)
+
+    try:
+        return _run_authenticated_audit(
+            config,
+            client,
+            findings,
+            now=now,
+        )
+    except QbittorrentError as error:
+        findings.append(
+            Finding(
+                "api.connection",
+                Status.FAIL,
+                "Unable to establish an authenticated qBittorrent session",
+                evidence=(type(error).__name__,),
+                remediation="Verify the URL, credentials, Web UI state, and network path.",
+            )
+        )
+        findings.extend(
+            audit_storage(
+                config.download_roots,
+                is_local=config.local,
+            )
+        )
+        findings.extend(audit_media_tools(is_local=config.local))
+        return AuditReport.from_findings(config.name, findings)
+    finally:
+        client.logout()
 

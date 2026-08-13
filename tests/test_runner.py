@@ -11,9 +11,12 @@ from seedbox_doctor.runner import run_audit
 class FakeClient:
     fail_preferences = False
     fail_login = False
+    instances = []
 
     def __init__(self, base_url, username, password, *, timeout):
         self.logged_out = False
+        self.logout_calls = 0
+        FakeClient.instances.append(self)
 
     def login(self):
         if self.fail_login:
@@ -21,6 +24,7 @@ class FakeClient:
 
     def logout(self):
         self.logged_out = True
+        self.logout_calls += 1
 
     def app_version(self):
         return "5.0.4"
@@ -56,6 +60,7 @@ class FakeClient:
 
 class RunnerTests(unittest.TestCase):
     def setUp(self) -> None:
+        FakeClient.instances = []
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.config = InstanceConfig(
@@ -81,6 +86,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(findings["transfer.connection"].status, Status.PASS)
         self.assertEqual(findings["storage.capacity"].status, Status.SKIP)
         self.assertEqual(findings["media.tools"].status, Status.SKIP)
+        self.assertEqual(FakeClient.instances[-1].logout_calls, 1)
 
     def test_endpoint_failure_does_not_abort_other_checks(self) -> None:
         class PartialClient(FakeClient):
@@ -103,6 +109,27 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(findings["storage.capacity"].status, Status.SKIP)
         self.assertEqual(findings["media.tools"].status, Status.SKIP)
         self.assertEqual(len(findings), 3)
+        self.assertEqual(FakeClient.instances[-1].logout_calls, 0)
+
+    def test_version_failure_still_logs_out(self) -> None:
+        class VersionFailureClient(FakeClient):
+            def app_version(self):
+                raise TransportError("version endpoint unavailable")
+
+        report = run_audit(self.config, client_factory=VersionFailureClient)
+
+        self.assertEqual(self.by_id(report)["api.connection"].status, Status.FAIL)
+        self.assertEqual(FakeClient.instances[-1].logout_calls, 1)
+
+    def test_unexpected_check_error_still_logs_out(self) -> None:
+        class BrokenCheckClient(FakeClient):
+            def preferences(self):
+                raise RuntimeError("unexpected parser bug")
+
+        with self.assertRaisesRegex(RuntimeError, "unexpected parser bug"):
+            run_audit(self.config, client_factory=BrokenCheckClient)
+
+        self.assertEqual(FakeClient.instances[-1].logout_calls, 1)
 
     def test_tracker_failure_keeps_other_torrent_results(self) -> None:
         class PartialTrackerClient(FakeClient):
