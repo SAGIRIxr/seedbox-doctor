@@ -97,19 +97,63 @@ def run_audit(
         findings.extend(audit_transfer_health(transfer))
 
     tracker_groups: list[list[dict[str, Any]]] = []
-    tracker_error: QbittorrentError | None = None
+    tracker_errors: list[QbittorrentError] = []
+    tracker_attempts = 0
     for torrent in torrents:
         torrent_hash = str(torrent.get("hash", ""))
         if not torrent_hash:
             continue
+        tracker_attempts += 1
         try:
             tracker_groups.append(client.trackers(torrent_hash))
         except QbittorrentError as error:
-            tracker_error = error
-            break
-    if tracker_error is not None:
-        findings.append(_api_failure("api.trackers", "tracker state", tracker_error))
-    elif torrents:
+            tracker_errors.append(error)
+
+    if tracker_attempts:
+        tracker_failures = len(tracker_errors)
+        tracker_successes = len(tracker_groups)
+        metadata = {
+            "attempted": tracker_attempts,
+            "succeeded": tracker_successes,
+            "failed": tracker_failures,
+        }
+        if tracker_failures == 0:
+            findings.append(
+                Finding(
+                    "api.trackers",
+                    Status.PASS,
+                    "Tracker data was read for every torrent",
+                    metadata=metadata,
+                )
+            )
+        elif tracker_successes == 0:
+            findings.append(
+                Finding(
+                    "api.trackers",
+                    Status.FAIL,
+                    "Tracker data could not be read for any torrent",
+                    evidence=tuple(
+                        sorted({type(error).__name__ for error in tracker_errors})
+                    ),
+                    remediation="Check qBittorrent logs, Web API permissions, and torrent state.",
+                    metadata=metadata,
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    "api.trackers",
+                    Status.WARN,
+                    f"Tracker data could not be read for {tracker_failures} of {tracker_attempts} torrents",
+                    evidence=tuple(
+                        sorted({type(error).__name__ for error in tracker_errors})
+                    ),
+                    remediation="Retry the audit and inspect recently removed or changed torrents.",
+                    metadata=metadata,
+                )
+            )
+
+    if tracker_groups:
         findings.extend(audit_tracker_health(tracker_groups))
 
     findings.extend(

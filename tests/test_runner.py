@@ -104,6 +104,67 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(findings["media.tools"].status, Status.SKIP)
         self.assertEqual(len(findings), 3)
 
+    def test_tracker_failure_keeps_other_torrent_results(self) -> None:
+        class PartialTrackerClient(FakeClient):
+            requested_hashes = []
+
+            def torrents(self):
+                return [
+                    {"hash": "private-a", "state": "uploading"},
+                    {"hash": "private-b", "state": "uploading"},
+                    {"hash": "private-c", "state": "uploading"},
+                ]
+
+            def trackers(self, torrent_hash):
+                self.requested_hashes.append(torrent_hash)
+                if torrent_hash == "private-b":
+                    raise TransportError("torrent disappeared: private-b")
+                return [{"url": "https://tracker.example/announce", "status": 2}]
+
+        report = run_audit(self.config, client_factory=PartialTrackerClient)
+        findings = self.by_id(report)
+
+        self.assertEqual(
+            PartialTrackerClient.requested_hashes,
+            ["private-a", "private-b", "private-c"],
+        )
+        self.assertEqual(findings["api.trackers"].status, Status.WARN)
+        self.assertEqual(
+            findings["api.trackers"].metadata,
+            {"attempted": 3, "succeeded": 2, "failed": 1},
+        )
+        self.assertEqual(findings["trackers.failures"].status, Status.PASS)
+        self.assertNotIn("private-b", repr(findings["api.trackers"]))
+
+    def test_all_tracker_failures_are_aggregated_without_hashes(self) -> None:
+        class UnavailableTrackerClient(FakeClient):
+            requested_hashes = []
+
+            def torrents(self):
+                return [
+                    {"hash": "private-a", "state": "uploading"},
+                    {"hash": "private-b", "state": "uploading"},
+                ]
+
+            def trackers(self, torrent_hash):
+                self.requested_hashes.append(torrent_hash)
+                raise TransportError(f"unavailable: {torrent_hash}")
+
+        report = run_audit(self.config, client_factory=UnavailableTrackerClient)
+        findings = self.by_id(report)
+
+        self.assertEqual(
+            UnavailableTrackerClient.requested_hashes,
+            ["private-a", "private-b"],
+        )
+        self.assertEqual(findings["api.trackers"].status, Status.FAIL)
+        self.assertEqual(
+            findings["api.trackers"].metadata,
+            {"attempted": 2, "succeeded": 0, "failed": 2},
+        )
+        self.assertNotIn("trackers.inventory", findings)
+        self.assertNotIn("private-a", repr(findings["api.trackers"]))
+
 
 if __name__ == "__main__":
     unittest.main()
