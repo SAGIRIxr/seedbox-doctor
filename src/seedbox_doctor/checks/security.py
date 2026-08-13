@@ -112,8 +112,7 @@ def audit_webui_security(
     ]
 
     parsed = urlsplit(base_url)
-    use_https = bool(preferences.get("use_https", parsed.scheme == "https"))
-    if parsed.scheme == "https" or use_https:
+    if parsed.scheme.lower() == "https":
         findings.append(
             Finding("security.transport", Status.PASS, "Web UI transport uses HTTPS")
         )
@@ -131,7 +130,10 @@ def audit_webui_security(
                 "security.transport",
                 Status.FAIL,
                 "Credentials may cross the network over plain HTTP",
-                evidence=(f"scheme={parsed.scheme or 'unknown'}",),
+                evidence=(
+                    f"scheme={parsed.scheme or 'unknown'}",
+                    f"use_https={str(bool(preferences.get('use_https', False))).lower()}",
+                ),
                 remediation="Use HTTPS directly or access a loopback Web UI through SSH/VPN.",
             )
         )

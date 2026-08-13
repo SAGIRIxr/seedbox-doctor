@@ -53,6 +53,24 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual(remote["security.transport"].status, Status.FAIL)
         self.assertEqual(local["security.transport"].status, Status.PASS)
 
+    def test_https_preference_does_not_hide_plain_http_connection(self) -> None:
+        findings = self.by_id(
+            {**SAFE_PREFERENCES, "use_https": True},
+            "http://seedbox.example.test:8080",
+        )
+
+        transport = findings["security.transport"]
+        self.assertEqual(transport.status, Status.FAIL)
+        self.assertIn("use_https=true", transport.evidence)
+
+    def test_https_proxy_is_safe_when_qbittorrent_https_is_disabled(self) -> None:
+        findings = self.by_id(
+            {**SAFE_PREFERENCES, "use_https": False},
+            "https://seedbox.example.test",
+        )
+
+        self.assertEqual(findings["security.transport"].status, Status.PASS)
+
     def test_warns_for_all_interface_binding(self) -> None:
         findings = self.by_id({**SAFE_PREFERENCES, "web_ui_address": "0.0.0.0"})
         self.assertEqual(findings["security.listen_address"].status, Status.WARN)
