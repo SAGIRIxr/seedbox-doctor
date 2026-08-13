@@ -43,13 +43,44 @@ class StorageAuditTests(unittest.TestCase):
         self.assertEqual(finding.status, Status.WARN)
         self.assertEqual(finding.metadata["free_gib"], 20.0)
 
-    def test_deduplicates_same_filesystem(self) -> None:
+    def test_deduplicates_identical_paths_before_reading_usage(self) -> None:
         findings = audit_storage(
             [self.root, self.root],
             is_local=True,
             usage_reader=lambda _: DiskUsage(100 * GIB, 50 * GIB, 50 * GIB),
         )
         self.assertEqual(len(findings), 1)
+
+    def test_deduplicates_roots_on_the_same_filesystem(self) -> None:
+        first = self.root / "first"
+        second = self.root / "second"
+        first.mkdir()
+        second.mkdir()
+
+        findings = audit_storage(
+            [first, second],
+            is_local=True,
+            usage_reader=lambda _: DiskUsage(100 * GIB, 50 * GIB, 50 * GIB),
+            identity_reader=lambda _: "device-1",
+        )
+
+        self.assertEqual(findings[0].status, Status.PASS)
+        self.assertEqual(findings[1].status, Status.SKIP)
+
+    def test_equal_capacity_does_not_merge_different_filesystems(self) -> None:
+        first = self.root / "first"
+        second = self.root / "second"
+        first.mkdir()
+        second.mkdir()
+
+        findings = audit_storage(
+            [first, second],
+            is_local=True,
+            usage_reader=lambda _: DiskUsage(100 * GIB, 50 * GIB, 50 * GIB),
+            identity_reader=lambda path: path.name,
+        )
+
+        self.assertEqual([item.status for item in findings], [Status.PASS, Status.PASS])
 
     def test_rejects_overlapping_thresholds(self) -> None:
         with self.assertRaises(ValueError):
