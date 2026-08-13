@@ -80,6 +80,28 @@ class SecurityAuditTests(unittest.TestCase):
         self.assertEqual(findings["security.csrf"].status, Status.SKIP)
         self.assertEqual(findings["security.transport"].status, Status.PASS)
 
+    def test_non_boolean_security_controls_never_pass(self) -> None:
+        for value in ("false", 1, None, [], {"private": "value"}):
+            with self.subTest(value=value):
+                findings = self.by_id(
+                    {**SAFE_PREFERENCES, "web_ui_csrf_protection_enabled": value}
+                )
+                finding = findings["security.csrf"]
+                self.assertEqual(finding.status, Status.FAIL)
+                self.assertEqual(
+                    finding.evidence,
+                    (f"type={type(value).__name__}",),
+                )
+                self.assertEqual(finding.metadata, {})
+
+    def test_non_boolean_warning_control_remains_warning(self) -> None:
+        finding = self.by_id(
+            {**SAFE_PREFERENCES, "web_ui_clickjacking_protection_enabled": "true"}
+        )["security.clickjacking"]
+
+        self.assertEqual(finding.status, Status.WARN)
+        self.assertEqual(finding.evidence, ("type=str",))
+
 
 if __name__ == "__main__":
     unittest.main()
