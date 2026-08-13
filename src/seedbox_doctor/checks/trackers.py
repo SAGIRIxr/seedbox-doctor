@@ -11,7 +11,8 @@ from seedbox_doctor.models import Finding, Status
 _SPECIAL_TRACKERS = {"** [DHT] **", "** [PeX] **", "** [LSD] **"}
 _WORKING = 2
 _NOT_CONTACTED = 1
-_NOT_WORKING = 4
+_FAILED = {4, 5, 6}
+_KNOWN_STATUSES = {0, 1, 2, 3, 4, 5, 6}
 
 
 def audit_tracker_health(
@@ -44,7 +45,23 @@ def audit_tracker_health(
             ),
         )
 
-    statuses = Counter(int(tracker.get("status", 0)) for tracker in trackers)
+    statuses: Counter[int] = Counter()
+    invalid_statuses = 0
+    for tracker in trackers:
+        raw_status = tracker.get("status", 0)
+        if isinstance(raw_status, bool):
+            invalid_statuses += 1
+            continue
+        try:
+            status = int(raw_status)
+        except (TypeError, ValueError):
+            invalid_statuses += 1
+            continue
+        statuses[status] += 1
+
+    unknown = invalid_statuses + sum(
+        count for status, count in statuses.items() if status not in _KNOWN_STATUSES
+    )
     findings = [
         Finding(
             "trackers.inventory",
@@ -54,14 +71,24 @@ def audit_tracker_health(
         )
     ]
 
-    failed = statuses[_NOT_WORKING]
+    failed = sum(statuses[status] for status in _FAILED)
     working = statuses[_WORKING]
-    if failed == 0:
+    if failed == 0 and unknown == 0:
         findings.append(
             Finding(
                 "trackers.failures",
                 Status.PASS,
                 "No trackers report a failed state",
+            )
+        )
+    elif failed == 0:
+        findings.append(
+            Finding(
+                "trackers.failures",
+                Status.WARN,
+                f"{unknown} tracker endpoint(s) report an unrecognized status",
+                remediation="Upgrade seedbox-doctor or inspect the tracker status in qBittorrent.",
+                metadata={"failed": 0, "working": working, "unknown": unknown},
             )
         )
     elif working == 0:
@@ -71,7 +98,7 @@ def audit_tracker_health(
                 Status.FAIL,
                 f"All contacted trackers are failing ({failed} endpoint(s))",
                 remediation="Check DNS, proxy/firewall rules, credentials, and tracker announcements.",
-                metadata={"failed": failed, "working": working},
+                metadata={"failed": failed, "working": working, "unknown": unknown},
             )
         )
     else:
@@ -81,7 +108,7 @@ def audit_tracker_health(
                 Status.WARN,
                 f"{failed} tracker endpoint(s) fail while {working} remain healthy",
                 remediation="Review affected tracker messages inside qBittorrent.",
-                metadata={"failed": failed, "working": working},
+                metadata={"failed": failed, "working": working, "unknown": unknown},
             )
         )
 

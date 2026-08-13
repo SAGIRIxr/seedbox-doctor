@@ -33,6 +33,34 @@ class TrackerHealthTests(unittest.TestCase):
         self.assertEqual(findings["trackers.failures"].status, Status.WARN)
         self.assertEqual(findings["trackers.failures"].metadata["failed"], 1)
 
+    def test_qbittorrent_213_error_status_fails(self) -> None:
+        findings = self.by_id(
+            [[{"url": "https://tracker.example/announce", "status": 5}]]
+        )
+
+        self.assertEqual(findings["trackers.failures"].status, Status.FAIL)
+        self.assertEqual(findings["trackers.failures"].metadata["failed"], 1)
+
+    def test_unreachable_and_working_trackers_warn(self) -> None:
+        findings = self.by_id(
+            [[
+                {"url": "https://one.example/announce", "status": 6},
+                {"url": "https://two.example/announce", "status": 2},
+            ]]
+        )
+
+        self.assertEqual(findings["trackers.failures"].status, Status.WARN)
+        self.assertEqual(findings["trackers.failures"].metadata["failed"], 1)
+
+    def test_invalid_or_future_statuses_never_produce_false_pass(self) -> None:
+        for status in (None, "invalid", True, 99):
+            with self.subTest(status=status):
+                findings = self.by_id(
+                    [[{"url": "https://tracker.example/announce", "status": status}]]
+                )
+                self.assertEqual(findings["trackers.failures"].status, Status.WARN)
+                self.assertEqual(findings["trackers.failures"].metadata["unknown"], 1)
+
     def test_fails_when_every_contacted_tracker_is_down(self) -> None:
         findings = self.by_id(
             [[
