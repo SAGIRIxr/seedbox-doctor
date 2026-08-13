@@ -5,13 +5,13 @@ One command. No writes. A report you can safely share.
 `seedbox-doctor` is a zero-runtime-dependency, read-only health and security
 auditor for qBittorrent 4.x/5.x and small seedboxes.
 
-The project is being built in public as a set of independently reviewable
-features. The first release will provide:
+The project is built in public as a set of independently reviewable features.
+The current release provides:
 
 - qBittorrent v4/v5 Web API support
 - security, torrent, tracker, and disk checks
 - a risk score with actionable remediation
-- redacted terminal, JSON, and Markdown reports
+- redacted terminal, JSON, and Markdown reports with atomic file replacement
 - safe defaults: no torrent deletion and no settings mutation
 
 ```text
