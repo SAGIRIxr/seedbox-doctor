@@ -62,6 +62,7 @@ strict automation, or `--fail-on never` when collecting diagnostics.
 - tracker outages without exposing announce URLs or passkeys
 - connection state, DHT bootstrap, and transfer counters
 - local filesystem existence and free capacity
+- local FFmpeg and FFprobe availability/version
 
 ## Design principles
 

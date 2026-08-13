@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from seedbox_doctor.checks.media import audit_media_tools
 from seedbox_doctor.checks.security import audit_webui_security
 from seedbox_doctor.checks.storage import audit_storage
 from seedbox_doctor.checks.torrents import audit_torrent_health
@@ -61,6 +62,7 @@ def run_audit(
                 is_local=config.local,
             )
         )
+        findings.extend(audit_media_tools(is_local=config.local))
         return AuditReport.from_findings(config.name, findings)
 
     findings.append(
@@ -116,6 +118,7 @@ def run_audit(
             is_local=config.local,
         )
     )
+    findings.extend(audit_media_tools(is_local=config.local))
     client.logout()
     return AuditReport.from_findings(config.name, findings)
 
