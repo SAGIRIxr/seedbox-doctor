@@ -80,6 +80,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(findings["trackers.failures"].status, Status.PASS)
         self.assertEqual(findings["transfer.connection"].status, Status.PASS)
         self.assertEqual(findings["storage.capacity"].status, Status.SKIP)
+        self.assertEqual(findings["media.tools"].status, Status.SKIP)
 
     def test_endpoint_failure_does_not_abort_other_checks(self) -> None:
         class PartialClient(FakeClient):
@@ -100,7 +101,8 @@ class RunnerTests(unittest.TestCase):
         findings = self.by_id(report)
         self.assertEqual(findings["api.connection"].status, Status.FAIL)
         self.assertEqual(findings["storage.capacity"].status, Status.SKIP)
-        self.assertEqual(len(findings), 2)
+        self.assertEqual(findings["media.tools"].status, Status.SKIP)
+        self.assertEqual(len(findings), 3)
 
 
 if __name__ == "__main__":
