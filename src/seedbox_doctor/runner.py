@@ -37,15 +37,27 @@ def _run_authenticated_audit(
 ) -> AuditReport:
     """Run checks that require an already authenticated client."""
 
-    version = client.app_version()
     findings.append(
         Finding(
             "api.connection",
             Status.PASS,
-            f"Authenticated to qBittorrent {version}",
-            metadata={"version": version},
+            "Authenticated to qBittorrent",
         )
     )
+
+    try:
+        version = client.app_version()
+    except QbittorrentError as error:
+        findings.append(_api_failure("api.version", "application version", error))
+    else:
+        findings.append(
+            Finding(
+                "api.version",
+                Status.PASS,
+                f"qBittorrent reports version {version}",
+                metadata={"version": version},
+            )
+        )
 
     try:
         preferences = client.preferences()
@@ -182,24 +194,6 @@ def run_audit(
             findings,
             now=now,
         )
-    except QbittorrentError as error:
-        findings.append(
-            Finding(
-                "api.connection",
-                Status.FAIL,
-                "Unable to establish an authenticated qBittorrent session",
-                evidence=(type(error).__name__,),
-                remediation="Verify the URL, credentials, Web UI state, and network path.",
-            )
-        )
-        findings.extend(
-            audit_storage(
-                config.download_roots,
-                is_local=config.local,
-            )
-        )
-        findings.extend(audit_media_tools(is_local=config.local))
-        return AuditReport.from_findings(config.name, findings)
     finally:
         client.logout()
 

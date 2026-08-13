@@ -80,6 +80,8 @@ class RunnerTests(unittest.TestCase):
         findings = self.by_id(report)
 
         self.assertEqual(findings["api.connection"].status, Status.PASS)
+        self.assertEqual(findings["api.version"].status, Status.PASS)
+        self.assertEqual(findings["api.version"].metadata["version"], "5.0.4")
         self.assertEqual(findings["security.csrf"].status, Status.PASS)
         self.assertEqual(findings["torrents.errors"].status, Status.PASS)
         self.assertEqual(findings["trackers.failures"].status, Status.PASS)
@@ -118,7 +120,12 @@ class RunnerTests(unittest.TestCase):
 
         report = run_audit(self.config, client_factory=VersionFailureClient)
 
-        self.assertEqual(self.by_id(report)["api.connection"].status, Status.FAIL)
+        findings = self.by_id(report)
+        self.assertEqual(findings["api.connection"].status, Status.PASS)
+        self.assertEqual(findings["api.version"].status, Status.FAIL)
+        self.assertEqual(findings["security.csrf"].status, Status.PASS)
+        self.assertEqual(findings["torrents.errors"].status, Status.PASS)
+        self.assertEqual(findings["transfer.connection"].status, Status.PASS)
         self.assertEqual(FakeClient.instances[-1].logout_calls, 1)
 
     def test_unexpected_check_error_still_logs_out(self) -> None:
