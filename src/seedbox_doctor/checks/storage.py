@@ -86,14 +86,39 @@ def audit_storage(
             )
             continue
 
-        usage = usage_reader(path)
-        identity = identity_reader(path)
+        try:
+            identity = identity_reader(path)
+        except OSError as error:
+            findings.append(
+                Finding(
+                    check_id,
+                    Status.FAIL,
+                    "Download root filesystem could not be identified",
+                    evidence=(f"error={type(error).__name__}",),
+                    remediation="Restore access to the configured root and rerun the audit.",
+                )
+            )
+            continue
         if identity in seen_filesystems:
             findings.append(
                 Finding(
                     check_id,
                     Status.SKIP,
                     "Download root shares a filesystem already checked",
+                )
+            )
+            continue
+
+        try:
+            usage = usage_reader(path)
+        except OSError as error:
+            findings.append(
+                Finding(
+                    check_id,
+                    Status.FAIL,
+                    "Download filesystem capacity could not be read",
+                    evidence=(f"error={type(error).__name__}",),
+                    remediation="Restore the mount or its permissions and rerun the audit.",
                 )
             )
             continue

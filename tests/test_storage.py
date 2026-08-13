@@ -82,6 +82,56 @@ class StorageAuditTests(unittest.TestCase):
 
         self.assertEqual([item.status for item in findings], [Status.PASS, Status.PASS])
 
+    def test_capacity_read_error_is_reported_without_leaking_details(self) -> None:
+        private_message = f"permission denied: {self.root}"
+
+        def unavailable(_: Path) -> DiskUsage:
+            raise PermissionError(private_message)
+
+        finding = audit_storage(
+            [self.root],
+            is_local=True,
+            identity_reader=lambda _: "device-1",
+            usage_reader=unavailable,
+        )[0]
+
+        self.assertEqual(finding.status, Status.FAIL)
+        self.assertEqual(finding.evidence, ("error=PermissionError",))
+        self.assertNotIn(private_message, repr(finding))
+
+    def test_read_error_does_not_abort_later_roots(self) -> None:
+        first = self.root / "first"
+        second = self.root / "second"
+        first.mkdir()
+        second.mkdir()
+
+        def usage(path: Path) -> DiskUsage:
+            if path == first:
+                raise OSError("stale network mount")
+            return DiskUsage(100 * GIB, 50 * GIB, 50 * GIB)
+
+        findings = audit_storage(
+            [first, second],
+            is_local=True,
+            identity_reader=lambda path: path.name,
+            usage_reader=usage,
+        )
+
+        self.assertEqual([item.status for item in findings], [Status.FAIL, Status.PASS])
+
+    def test_identity_read_error_is_reported_and_isolated(self) -> None:
+        def unavailable(_: Path):
+            raise FileNotFoundError("mount disappeared")
+
+        finding = audit_storage(
+            [self.root],
+            is_local=True,
+            identity_reader=unavailable,
+        )[0]
+
+        self.assertEqual(finding.status, Status.FAIL)
+        self.assertEqual(finding.evidence, ("error=FileNotFoundError",))
+
     def test_rejects_overlapping_thresholds(self) -> None:
         with self.assertRaises(ValueError):
             audit_storage([], is_local=True, fail_percent=20, warn_percent=10)
