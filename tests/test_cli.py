@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from seedbox_doctor.cli import main
 from seedbox_doctor.config import ConfigError, InstanceConfig
@@ -51,6 +52,28 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertIn("# seedbox-doctor report", output.read_text(encoding="utf-8"))
+
+    def test_failed_replace_preserves_previous_report_and_cleans_temp_file(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        output = Path(directory.name) / "report.json"
+        output.write_text("previous report", encoding="utf-8")
+        stderr = io.StringIO()
+
+        with (
+            patch("seedbox_doctor.cli.os.replace", side_effect=OSError("locked")),
+            contextlib.redirect_stderr(stderr),
+        ):
+            code = main(
+                ["check", "--format", "json", "--output", str(output)],
+                loader=self.loader,
+                runner=lambda _: self.report(),
+            )
+
+        self.assertEqual(code, 2)
+        self.assertEqual(output.read_text(encoding="utf-8"), "previous report")
+        self.assertEqual(list(Path(directory.name).iterdir()), [output])
+        self.assertIn("cannot write report", stderr.getvalue())
 
     def test_fail_on_policy_controls_exit_code(self) -> None:
         for policy, status, expected in [

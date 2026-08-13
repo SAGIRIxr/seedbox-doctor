@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -72,6 +74,34 @@ def _exit_code(status: Status, fail_on: str) -> int:
     return 0
 
 
+def _write_report(path: Path, rendered: str) -> None:
+    """Atomically replace a report after its complete contents reach disk."""
+
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(rendered)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -92,7 +122,7 @@ def main(
     rendered = _render(report, args.format)
     if args.output:
         try:
-            args.output.write_text(rendered, encoding="utf-8")
+            _write_report(args.output, rendered)
         except OSError as error:
             print(f"seedbox-doctor: cannot write report: {error}", file=sys.stderr)
             return 2
