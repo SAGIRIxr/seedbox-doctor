@@ -133,7 +133,14 @@ class QbittorrentClient:
     def app_version(self) -> str:
         if not self._authenticated:
             raise AuthenticationError("login must be called before reading the API")
-        return self._request("/api/v2/app/version").decode("utf-8").strip()
+        body = self._request("/api/v2/app/version")
+        try:
+            version = body.decode("utf-8").strip()
+        except UnicodeDecodeError as error:
+            raise ProtocolError("invalid text returned by /api/v2/app/version") from error
+        if not version:
+            raise ProtocolError("empty version returned by /api/v2/app/version")
+        return version
 
     def preferences(self) -> dict[str, Any]:
         value = self._json("/api/v2/app/preferences")

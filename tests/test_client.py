@@ -105,6 +105,19 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             client.preferences()
 
+    def test_rejects_non_utf8_or_empty_version_response(self) -> None:
+        for body in (b"\xff", b"  \r\n"):
+            with self.subTest(body=body):
+                client = QbittorrentClient(
+                    "http://localhost:8080",
+                    "admin",
+                    "secret",
+                    opener=FakeOpener([b"Ok.", body]),
+                )
+                client.login()
+                with self.assertRaises(ProtocolError):
+                    client.app_version()
+
 
 if __name__ == "__main__":
     unittest.main()
