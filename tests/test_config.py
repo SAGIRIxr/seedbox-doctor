@@ -79,6 +79,90 @@ class ProfileLoadingTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "embedded"):
             load_profile(path, environ={"QB_PASSWORD": "secret"})
 
+    def test_rejects_malformed_ini_without_echoing_contents(self) -> None:
+        secret_text = "do-not-echo-this"
+        path = self.write_config(
+            f"""
+            [profile.main]
+            url = http://localhost:8080
+            url = {secret_text}
+            """
+        )
+
+        with self.assertRaises(ConfigError) as context:
+            load_profile(path, environ={"SEEDBOX_DOCTOR_PASSWORD": "secret"})
+
+        self.assertIn("could not be parsed", str(context.exception))
+        self.assertNotIn(secret_text, str(context.exception))
+
+    def test_rejects_invalid_or_ambiguous_urls(self) -> None:
+        invalid_urls = (
+            "http://localhost:99999",
+            "http://localhost:8080?target=/api",
+            "http://localhost:8080/#credentials",
+            "http://[broken",
+            "http://",
+        )
+        for url in invalid_urls:
+            with self.subTest(url=url):
+                path = self.write_config(
+                    f"""
+                    [profile.main]
+                    url = {url}
+                    """
+                )
+                with self.assertRaises(ConfigError):
+                    load_profile(
+                        path,
+                        environ={"SEEDBOX_DOCTOR_PASSWORD": "secret"},
+                    )
+
+    def test_allows_reverse_proxy_paths(self) -> None:
+        path = self.write_config(
+            """
+            [profile.main]
+            url = https://example.test/qbittorrent/
+            """
+        )
+
+        profile = load_profile(
+            path,
+            environ={"SEEDBOX_DOCTOR_PASSWORD": "secret"},
+        )
+
+        self.assertEqual(profile.url, "https://example.test/qbittorrent")
+
+    def test_rejects_empty_username_and_unknown_fields(self) -> None:
+        for field in ("username =", "usrname = typo"):
+            with self.subTest(field=field):
+                path = self.write_config(
+                    f"""
+                    [profile.main]
+                    url = http://localhost:8080
+                    {field}
+                    """
+                )
+                with self.assertRaises(ConfigError):
+                    load_profile(
+                        path,
+                        environ={"SEEDBOX_DOCTOR_PASSWORD": "secret"},
+                    )
+
+    def test_rejects_unknown_override_fields(self) -> None:
+        path = self.write_config(
+            """
+            [profile.main]
+            url = http://localhost:8080
+            """
+        )
+
+        with self.assertRaisesRegex(ConfigError, "unknown override"):
+            load_profile(
+                path,
+                environ={"SEEDBOX_DOCTOR_PASSWORD": "secret"},
+                overrides={"usrname": "typo"},
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
