@@ -14,6 +14,16 @@ class ConfigError(ValueError):
     """Raised when a profile is missing or unsafe."""
 
 
+_PROFILE_FIELDS = {
+    "url",
+    "username",
+    "password_env",
+    "timeout",
+    "local",
+    "download_roots",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class InstanceConfig:
     """Connection details for one qBittorrent instance."""
@@ -37,12 +47,22 @@ def _as_bool(value: str, field_name: str) -> bool:
 
 
 def _validate_url(value: str) -> str:
-    url = value.strip().rstrip("/")
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    raw_url = value.strip()
+    if any(ord(character) < 32 or ord(character) == 127 for character in raw_url):
+        raise ConfigError("url must not contain control characters")
+    url = raw_url.rstrip("/")
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError as error:
+        raise ConfigError("url contains an invalid host or port") from error
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or not hostname:
         raise ConfigError("url must be an absolute http:// or https:// URL")
     if parsed.username or parsed.password:
         raise ConfigError("credentials must not be embedded in the URL")
+    if parsed.query or parsed.fragment:
+        raise ConfigError("url must not contain a query string or fragment")
     return url
 
 
@@ -62,9 +82,17 @@ def load_profile(
 
     env = os.environ if environ is None else environ
     supplied = {} if overrides is None else dict(overrides)
+    unknown_overrides = set(supplied).difference(_PROFILE_FIELDS | {"password"})
+    if unknown_overrides:
+        names = ", ".join(sorted(unknown_overrides))
+        raise ConfigError(f"unknown override field(s): {names}")
     parser = configparser.ConfigParser(interpolation=None)
     config_path = Path(path).expanduser()
-    if not parser.read(config_path, encoding="utf-8"):
+    try:
+        loaded = parser.read(config_path, encoding="utf-8")
+    except (configparser.Error, UnicodeError) as error:
+        raise ConfigError("configuration file could not be parsed") from error
+    if not loaded:
         raise ConfigError(f"configuration file not found: {config_path}")
 
     section_name = f"profile.{profile}"
@@ -76,6 +104,10 @@ def load_profile(
     if forbidden:
         names = ", ".join(sorted(forbidden))
         raise ConfigError(f"plaintext secret field(s) are forbidden: {names}")
+    unknown_fields = set(section.keys()).difference(_PROFILE_FIELDS)
+    if unknown_fields:
+        names = ", ".join(sorted(unknown_fields))
+        raise ConfigError(f"unknown profile field(s): {names}")
 
     def resolve(key: str, default: str = "") -> str:
         if key in supplied:
@@ -108,10 +140,14 @@ def load_profile(
         for item in resolve("download_roots").split(",")
         if item.strip()
     )
+    username = resolve("username", "admin").strip()
+    if not username:
+        raise ConfigError("username must not be empty")
+
     return InstanceConfig(
         name=profile,
         url=_validate_url(resolve("url")),
-        username=resolve("username", "admin").strip(),
+        username=username,
         password=password,
         timeout=timeout,
         local=_as_bool(resolve("local", "false"), "local"),
